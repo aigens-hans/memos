@@ -8,6 +8,11 @@ const item = {
   revision: "r1",
   memo_content: "Original memo",
   decision: "pending",
+  state_version: 1,
+  kept: false,
+  dismissed: false,
+  memory_ids: [],
+  context: "Work",
   content: { source: "synthetic" },
   warnings: ["Scan incomplete"],
   suggestions: [{ handler: "draft_reply", label: "Draft reply", reason: "A reply is waiting" }],
@@ -37,10 +42,15 @@ beforeEach(() => {
       if (options?.method === "POST") {
         const body = JSON.parse(options.body as string);
         requests.push({ url, body });
-        if (url.endsWith("/decisions")) state.decision = body.decision;
+        if (url.endsWith("/feedback")) {
+          if (body.action === "keep") state.kept = true;
+          if (body.action === "dismiss") state.dismissed = true;
+          if (body.action === "undo_dismiss") state.dismissed = false;
+        }
+        if (url.endsWith("/remember")) state.memory_ids = ["memory1"];
         if (url.endsWith("/jobs")) state.jobs = [{ id: "j1", handler: body.handler, status: "queued", result: null }];
       }
-      return new Response(JSON.stringify(state), { status: 200 });
+      return new Response(JSON.stringify(url.endsWith("/corrections") ? [] : state), { status: 200 });
     }),
   );
 });
@@ -64,16 +74,18 @@ describe("inline agent actions", () => {
     expect(screen.getByText("Scan incomplete")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Remember" }));
     expect(await screen.findByText("Remembered with source and context")).toBeInTheDocument();
-    expect(requests[0].body).toEqual({ revision: "r1", decision: "remember" });
+    expect(requests[0].url).toMatch(/remember$/);
+    expect(requests[0].body).toMatchObject({ revision: "r1", state_version: 1 });
   });
 
   it("collapses discarded content and supports undo", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm dismiss" }));
     await waitFor(() => expect(screen.queryByText("Original memo")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(await screen.findByText("Original memo")).toBeInTheDocument();
-    expect(requests.at(-1)?.body.decision).toBe("pending");
+    expect(requests.at(-1)?.body.action).toBe("undo_dismiss");
   });
 
   it("queues research with an optional question and shows results inline", async () => {
