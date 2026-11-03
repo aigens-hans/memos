@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import AgentBriefingCard from "@/components/AgentBriefingCard";
 import type { AgentItem } from "@/lib/agent-bridge";
@@ -75,7 +75,24 @@ it("preserves native content blurring instead of showing an unblurred summary", 
 });
 it("does not render a card that has become public or belongs to another user", async () => {
   memo.visibility = 2;
-  mount();
-  await new Promise((r) => setTimeout(r, 10));
+  await act(async () => {
+    mount();
+  });
   expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+});
+
+it("does not expose stored card text for a foreign memo", async () => {
+  memo.creator = "users/other";
+  await act(async () => {
+    mount();
+  });
+  expect(screen.queryByText("Confirm the vendor meeting")).not.toBeInTheDocument();
+});
+
+it("does not revive a deleted memo from the feed snapshot", async () => {
+  memo = null as unknown as Record<string, unknown>;
+  await act(async () => {
+    mount();
+  });
+  expect(screen.queryByText("Confirm the vendor meeting")).not.toBeInTheDocument();
 });

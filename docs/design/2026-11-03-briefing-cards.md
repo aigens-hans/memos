@@ -1,5 +1,7 @@
 # Briefing cards
 
+Status: Implemented
+
 The user accepted the interactive magazine-style mockup as close to the intended direction and explicitly authorized implementation and deployment. Make the existing For you and Kept feeds easier to scan without changing source data, model routing or durable actions.
 
 Use a clear headline, short summary, contextual card-type icon/accent, quiet source/context/date metadata and expandable source details. Use existing classification and source fields only; do not fabricate trend values, deadlines, people, urgency or meeting times from prose. Keep Learn more visible, with the selected draft suggestion prominent when applicable. Keep and Remember remain independent; Dismiss, context overrides, corrections, guidance and the Work-only Portal confirmation remain accessible. Fold advanced controls and long research results away until requested. All retains the native chronological memo interface and Remembered retains its editable memory interface.
