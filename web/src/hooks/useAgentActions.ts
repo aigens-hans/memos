@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import { type AgentItem, agentRequest } from "@/lib/agent-bridge";
 
 type Action =
-  | { kind: "decision"; revision: string; decision: AgentItem["decision"] }
+  | { kind: "feedback"; action: string; payload?: unknown }
+  | { kind: "remember"; note?: string }
   | { kind: "job"; revision: string; handler: "learn_more" | "draft_reply"; question: string };
 
 export function useAgentActions(memoName: string, userName: string, memoContent: string) {
@@ -25,8 +26,16 @@ export function useAgentActions(memoName: string, userName: string, memoContent:
   const mutation = useMutation({
     retry: false,
     mutationFn: async (action: Action) => {
-      if (action.kind === "decision") {
-        return agentRequest<AgentItem>(memoName, "/decisions", { revision: action.revision, decision: action.decision });
+      const item = query.data;
+      if (!item || item.memo_content !== memoContent) throw new Error("Refresh the memo before choosing an action.");
+      const identity = { revision: item.revision, state_version: item.state_version, request_id: crypto.randomUUID() };
+      if (action.kind === "feedback") {
+        await agentRequest(memoName, "/feedback", { ...identity, action: action.action, payload: action.payload ?? {} });
+        return undefined;
+      }
+      if (action.kind === "remember") {
+        await agentRequest(memoName, "/remember", { ...identity, note: action.note ?? "" });
+        return undefined;
       }
       await agentRequest(memoName, "/jobs", { revision: action.revision, handler: action.handler, question: action.question });
       return undefined;
@@ -34,6 +43,8 @@ export function useAgentActions(memoName: string, userName: string, memoContent:
     onSuccess: (data) => {
       if (data !== undefined) client.setQueryData(queryKey, data);
       void client.invalidateQueries({ queryKey });
+      void client.invalidateQueries({ queryKey: ["agent-feed"] });
+      void client.invalidateQueries({ queryKey: ["agent-memories"] });
     },
     onError: () => {
       void client.invalidateQueries({ queryKey });

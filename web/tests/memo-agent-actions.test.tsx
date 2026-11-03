@@ -8,6 +8,11 @@ const item = {
   revision: "r1",
   memo_content: "Original memo",
   decision: "pending",
+  state_version: 1,
+  kept: false,
+  dismissed: false,
+  memory_ids: [],
+  context: "Work",
   content: { source: "synthetic" },
   warnings: ["Scan incomplete"],
   suggestions: [{ handler: "draft_reply", label: "Draft reply", reason: "A reply is waiting" }],
@@ -16,11 +21,11 @@ const item = {
 let state: Record<string, unknown>;
 let requests: { url: string; body: Record<string, string> }[];
 
-function mount() {
+function mount(presentation: "standard" | "briefing" = "standard") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoAgentActions memoName="memos/abc" userName="users/1" memoContent="Original memo">
+      <MemoAgentActions memoName="memos/abc" userName="users/1" memoContent="Original memo" presentation={presentation}>
         <p>Original memo</p>
       </MemoAgentActions>
     </QueryClientProvider>,
@@ -37,10 +42,15 @@ beforeEach(() => {
       if (options?.method === "POST") {
         const body = JSON.parse(options.body as string);
         requests.push({ url, body });
-        if (url.endsWith("/decisions")) state.decision = body.decision;
+        if (url.endsWith("/feedback")) {
+          if (body.action === "keep") state.kept = true;
+          if (body.action === "dismiss") state.dismissed = true;
+          if (body.action === "undo_dismiss") state.dismissed = false;
+        }
+        if (url.endsWith("/remember")) state.memory_ids = ["memory1"];
         if (url.endsWith("/jobs")) state.jobs = [{ id: "j1", handler: body.handler, status: "queued", result: null }];
       }
-      return new Response(JSON.stringify(state), { status: 200 });
+      return new Response(JSON.stringify(url.endsWith("/corrections") ? [] : state), { status: 200 });
     }),
   );
 });
@@ -64,16 +74,18 @@ describe("inline agent actions", () => {
     expect(screen.getByText("Scan incomplete")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Remember" }));
     expect(await screen.findByText("Remembered with source and context")).toBeInTheDocument();
-    expect(requests[0].body).toEqual({ revision: "r1", decision: "remember" });
+    expect(requests[0].url).toMatch(/remember$/);
+    expect(requests[0].body).toMatchObject({ revision: "r1", state_version: 1 });
   });
 
   it("collapses discarded content and supports undo", async () => {
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm dismiss" }));
     await waitFor(() => expect(screen.queryByText("Original memo")).not.toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Undo" }));
     expect(await screen.findByText("Original memo")).toBeInTheDocument();
-    expect(requests.at(-1)?.body.decision).toBe("pending");
+    expect(requests.at(-1)?.body.action).toBe("undo_dismiss");
   });
 
   it("queues research with an optional question and shows results inline", async () => {
@@ -115,4 +127,73 @@ describe("inline agent actions", () => {
     expect(screen.getByText("Original memo")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Updating memo content");
   });
+});
+
+it("keeps Keep and Remember selected independently", async () => {
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Keep" }));
+  await screen.findByText("Kept for later");
+  fireEvent.click(screen.getByRole("button", { name: "Remember" }));
+  await screen.findByText("Remembered with source and context");
+  expect(screen.getByText("Kept for later")).toBeInTheDocument();
+});
+
+it("shows Portal creation only for Work and requires an explicit preview confirmation", async () => {
+  vi.mocked(fetch).mockImplementation(async (input, options) => {
+    const url = String(input);
+    if (url.endsWith("/todo-preview")) {
+      requests.push({ url, body: JSON.parse(options?.body as string) });
+      return new Response(
+        JSON.stringify({
+          id: "preview",
+          payload_hash: "hash",
+          payload: { title: "Approved title", assigneeEmails: ["owner@example.com"] },
+        }),
+      );
+    }
+    if (url.endsWith("/confirm")) {
+      requests.push({ url, body: JSON.parse(options?.body as string) });
+      return new Response(JSON.stringify({ status: "created", url: "https://todo.aigens.com/?todo=7" }));
+    }
+    return new Response(JSON.stringify(url.endsWith("/corrections") ? [] : state));
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Add to Team Portal" }));
+  fireEvent.change(screen.getByLabelText("Todo title"), { target: { value: "Approved title" } });
+  fireEvent.click(screen.getByRole("button", { name: "Preview todo" }));
+  await screen.findByRole("button", { name: "Confirm create todo" });
+  expect(requests).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm create todo" }));
+  expect(await screen.findByRole("link", { name: "Open todo" })).toHaveAttribute("href", "https://todo.aigens.com/?todo=7");
+  expect(requests).toHaveLength(2);
+});
+
+it("does not offer Portal task creation on a Family card", async () => {
+  state.context = "Family";
+  mount();
+  await screen.findByRole("button", { name: "Keep" });
+  expect(screen.queryByRole("button", { name: "Add to Team Portal" })).not.toBeInTheDocument();
+});
+
+it("briefing mode exposes a quiet menu and opens dismissal confirmation", async () => {
+  mount("briefing");
+  fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+  expect(screen.getByRole("button", { name: "Confirm dismiss" })).toBeVisible();
+});
+
+it("briefing mode folds completed research while keeping its status discoverable", async () => {
+  state.jobs = [{ id: "done", handler: "learn_more", status: "done", result: "Long research result" }];
+  mount("briefing");
+  expect(await screen.findByText("Research done")).toBeVisible();
+  expect(screen.getByText("Long research result")).not.toBeVisible();
+  fireEvent.click(screen.getByText("Research done"));
+  expect(screen.getByText("Long research result")).toBeVisible();
+});
+
+it("briefing mode keeps Learn more visible and exposes Work todo controls through More options", async () => {
+  mount("briefing");
+  expect(await screen.findByRole("button", { name: "Learn more" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Add to Team Portal" })).not.toBeVisible();
+  fireEvent.click(screen.getByText("More options"));
+  expect(screen.getByRole("button", { name: "Add to Team Portal" })).toBeVisible();
 });
