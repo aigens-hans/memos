@@ -128,3 +128,49 @@ describe("inline agent actions", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Updating memo content");
   });
 });
+
+it("keeps Keep and Remember selected independently", async () => {
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Keep" }));
+  await screen.findByText("Kept for later");
+  fireEvent.click(screen.getByRole("button", { name: "Remember" }));
+  await screen.findByText("Remembered with source and context");
+  expect(screen.getByText("Kept for later")).toBeInTheDocument();
+});
+
+it("shows Portal creation only for Work and requires an explicit preview confirmation", async () => {
+  vi.mocked(fetch).mockImplementation(async (input, options) => {
+    const url = String(input);
+    if (url.endsWith("/todo-preview")) {
+      requests.push({ url, body: JSON.parse(options?.body as string) });
+      return new Response(
+        JSON.stringify({
+          id: "preview",
+          payload_hash: "hash",
+          payload: { title: "Approved title", assigneeEmails: ["owner@example.com"] },
+        }),
+      );
+    }
+    if (url.endsWith("/confirm")) {
+      requests.push({ url, body: JSON.parse(options?.body as string) });
+      return new Response(JSON.stringify({ status: "created", url: "https://todo.aigens.com/?todo=7" }));
+    }
+    return new Response(JSON.stringify(url.endsWith("/corrections") ? [] : state));
+  });
+  mount();
+  fireEvent.click(await screen.findByRole("button", { name: "Add to Team Portal" }));
+  fireEvent.change(screen.getByLabelText("Todo title"), { target: { value: "Approved title" } });
+  fireEvent.click(screen.getByRole("button", { name: "Preview todo" }));
+  await screen.findByRole("button", { name: "Confirm create todo" });
+  expect(requests).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm create todo" }));
+  expect(await screen.findByRole("link", { name: "Open todo" })).toHaveAttribute("href", "https://todo.aigens.com/?todo=7");
+  expect(requests).toHaveLength(2);
+});
+
+it("does not offer Portal task creation on a Family card", async () => {
+  state.context = "Family";
+  mount();
+  await screen.findByRole("button", { name: "Keep" });
+  expect(screen.queryByRole("button", { name: "Add to Team Portal" })).not.toBeInTheDocument();
+});
