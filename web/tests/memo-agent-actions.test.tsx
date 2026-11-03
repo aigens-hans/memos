@@ -6,6 +6,7 @@ import MemoAgentActions from "@/components/MemoAgentActions";
 vi.mock("@/connect", () => ({ getRequestToken: async () => "browser" }));
 const item = {
   revision: "r1",
+  memo_content: "Original memo",
   decision: "pending",
   content: { source: "synthetic" },
   warnings: ["Scan incomplete"],
@@ -19,7 +20,7 @@ function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoAgentActions memoName="memos/abc" userName="users/1">
+      <MemoAgentActions memoName="memos/abc" userName="users/1" memoContent="Original memo">
         <p>Original memo</p>
       </MemoAgentActions>
     </QueryClientProvider>,
@@ -105,5 +106,13 @@ describe("inline agent actions", () => {
     mount();
     expect(await screen.findByRole("alert")).toHaveTextContent("Actions are unavailable");
     expect(screen.getByText("Original memo")).toBeInTheDocument();
+  });
+  it("blocks actions when bridge state is newer than the displayed memo", async () => {
+    state.memo_content = "New memo text";
+    state.revision = "r2";
+    mount();
+    expect(await screen.findByRole("button", { name: "Keep" })).toBeDisabled();
+    expect(screen.getByText("Original memo")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Updating memo content");
   });
 });

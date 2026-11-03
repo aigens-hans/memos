@@ -191,7 +191,7 @@ const MemoView = forwardRef<MemoViewHandle, MemoViewProps>((props, ref) => {
       <MemoHeader timeDisplay={timeDisplay} showCreator={showCreator} showVisibility={showVisibility} showSpace={showSpace} />
 
       {!readonly && !isEditing && (!blurred || showBlurredContent) && currentUser && memoData.content.includes("[//]: # (agent-bridge:") ? (
-        <MemoAgentActions memoName={memoData.name} userName={currentUser.name}>
+        <MemoAgentActions memoName={memoData.name} userName={currentUser.name} memoContent={memoData.content}>
           <MemoBody compact={compact} />
         </MemoAgentActions>
       ) : (

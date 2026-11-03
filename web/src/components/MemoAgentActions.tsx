@@ -5,17 +5,19 @@ import type { AgentHandler, AgentItem } from "@/lib/agent-bridge";
 
 interface Props {
   memoName: string;
+  memoContent: string;
   userName: string;
   children: ReactNode;
 }
 
-function InlineActions({ memoName, userName, children }: Props) {
-  const { query, mutation } = useAgentActions(memoName, userName);
+function InlineActions({ memoName, userName, memoContent, children }: Props) {
+  const { query, mutation } = useAgentActions(memoName, userName, memoContent);
   const [selected, setSelected] = useState<AgentHandler | null>(null);
   const [question, setQuestion] = useState("");
   const item = query.data;
   const error = mutation.error ?? query.error;
-  const busy = mutation.isPending;
+  const current = item?.memo_content === memoContent;
+  const busy = mutation.isPending || !current;
   const decide = (decision: AgentItem["decision"]) => {
     if (item) mutation.mutate({ kind: "decision", revision: item.revision, decision });
   };
@@ -31,7 +33,7 @@ function InlineActions({ memoName, userName, children }: Props) {
       },
     );
   };
-  const discarded = item?.decision === "discard";
+  const discarded = current && item?.decision === "discard";
 
   return (
     <>
@@ -45,6 +47,11 @@ function InlineActions({ memoName, userName, children }: Props) {
         {query.isPending && (
           <p role="status" className="text-muted-foreground">
             Loading actions…
+          </p>
+        )}
+        {item && !current && (
+          <p role="status" className="text-muted-foreground">
+            Updating memo content before enabling actions…
           </p>
         )}
         {item && (

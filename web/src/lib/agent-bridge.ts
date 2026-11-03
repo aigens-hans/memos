@@ -3,6 +3,7 @@ import { getRequestToken } from "@/connect";
 export type AgentHandler = "learn_more" | "draft_reply";
 export interface AgentItem {
   revision: string;
+  memo_content: string;
   decision: "pending" | "keep" | "remember" | "discard";
   warnings: string[];
   suggestions: { handler: AgentHandler; label: string; reason: string }[];
