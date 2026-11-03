@@ -1,6 +1,7 @@
 import { forwardRef, memo, Suspense, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useColumnGridUntrapped } from "@/components/ColumnGrid/ColumnGridContext";
+import MemoAgentActions from "@/components/MemoAgentActions";
 import { useAuth } from "@/contexts/AuthContext";
 import { useResolvedUser } from "@/contexts/MentionResolutionContext";
 import useCurrentUser from "@/hooks/useCurrentUser";
@@ -189,7 +190,13 @@ const MemoView = forwardRef<MemoViewHandle, MemoViewProps>((props, ref) => {
       {showPinned && memoData.pinned && <MemoPinnedMark />}
       <MemoHeader timeDisplay={timeDisplay} showCreator={showCreator} showVisibility={showVisibility} showSpace={showSpace} />
 
-      <MemoBody compact={compact} />
+      {!readonly && !isEditing && (!blurred || showBlurredContent) && currentUser && memoData.content.includes("[//]: # (agent-bridge:") ? (
+        <MemoAgentActions memoName={memoData.name} userName={currentUser.name}>
+          <MemoBody compact={compact} />
+        </MemoAgentActions>
+      ) : (
+        <MemoBody compact={compact} />
+      )}
 
       {previewState.items.length > 0 && (
         <Suspense fallback={null}>
