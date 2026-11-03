@@ -9,9 +9,12 @@ interface Props {
   memoContent: string;
   userName: string;
   children: ReactNode;
+  presentation?: "standard" | "briefing";
+  explanations?: { text: string; weight?: number }[];
 }
 
-function InlineActions({ memoName, userName, memoContent, children }: Props) {
+function InlineActions({ memoName, userName, memoContent, children, presentation = "standard", explanations }: Props) {
+  const briefing = presentation === "briefing";
   const { query, mutation } = useAgentActions(memoName, userName, memoContent);
   const [selected, setSelected] = useState<AgentHandler | null>(null);
   const [question, setQuestion] = useState("");
@@ -76,7 +79,11 @@ function InlineActions({ memoName, userName, memoContent, children }: Props) {
   return (
     <>
       {!discarded && children}
-      <section aria-label="Memo actions" className="mt-3 border-t pt-3 space-y-3 text-sm" onClick={(event) => event.stopPropagation()}>
+      <section
+        aria-label="Memo actions"
+        className={briefing ? "mt-4 space-y-3 text-sm" : "mt-3 border-t pt-3 space-y-3 text-sm"}
+        onClick={(event) => event.stopPropagation()}
+      >
         {error && (
           <p role="alert" className="text-destructive">
             {error.message}
@@ -109,13 +116,26 @@ function InlineActions({ memoName, userName, memoContent, children }: Props) {
                   </p>
                 ))}
                 {item.suggestions
-                  .filter((s) => ["learn_more", "draft_reply"].includes(s.handler))
+                  .filter(
+                    (s, index, all) =>
+                      ["learn_more", "draft_reply"].includes(s.handler) &&
+                      (!briefing || s.handler === "draft_reply") &&
+                      all.findIndex((other) => other.handler === s.handler) === index,
+                  )
                   .map((suggestion) => (
                     <div key={suggestion.handler} className="flex flex-wrap items-center gap-2">
-                      <Button size="sm" variant="outline" disabled={busy} onClick={() => setSelected(suggestion.handler)}>
+                      <Button
+                        size="sm"
+                        variant={briefing ? "default" : "outline"}
+                        disabled={busy}
+                        onClick={() => setSelected(suggestion.handler)}
+                      >
                         {suggestion.label}
                       </Button>
-                      <span className="text-muted-foreground">{suggestion.reason}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {briefing && <span className="font-medium">AI suggestion · </span>}
+                        {suggestion.reason}
+                      </span>
                     </div>
                   ))}
                 <div className="flex flex-wrap gap-2">
@@ -126,7 +146,7 @@ function InlineActions({ memoName, userName, memoContent, children }: Props) {
                     aria-pressed={item.kept}
                     onClick={() => feedback(item.kept ? "unkeep" : "keep")}
                   >
-                    Keep
+                    {briefing && <span aria-hidden="true">{item.kept ? "★" : "☆"} </span>}Keep
                   </Button>
                   <Button
                     size="sm"
@@ -137,7 +157,12 @@ function InlineActions({ memoName, userName, memoContent, children }: Props) {
                   >
                     Remember
                   </Button>
-                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => setSelected("learn_more")}>
+                  <Button
+                    size="sm"
+                    variant={briefing && !item.suggestions.some((s) => s.handler === "draft_reply") ? "default" : "ghost"}
+                    disabled={busy}
+                    onClick={() => setSelected("learn_more")}
+                  >
                     Learn more
                   </Button>
                   <Button size="sm" variant="ghost" disabled={busy} onClick={() => setDismissing(true)}>
@@ -146,190 +171,212 @@ function InlineActions({ memoName, userName, memoContent, children }: Props) {
                 </div>
                 {item.kept && <p role="status">Kept for later</p>}
                 {item.memory_ids?.length > 0 && <p role="status">Remembered with source and context</p>}
-                <label className="block">
-                  Context
-                  <select
-                    aria-label="Context"
-                    className="ml-2 rounded border bg-background p-1"
-                    value={item.context}
-                    disabled={busy}
-                    onChange={(e) => feedback("set_context", { context: e.target.value })}
-                  >
-                    {["Work", "Personal", "Family", "Unsorted"].map((context) => (
-                      <option key={context}>{context}</option>
-                    ))}
-                  </select>
-                </label>
-                {item.change_explanation && <p>{item.change_explanation}</p>}
-                <details>
-                  <summary>Why this card</summary>
-                  <p>
-                    Selected from your messages. Explicit feedback adjusts ranking within this context; one dismissal does not suppress a
-                    topic.
-                  </p>
-                  {item.why?.map((entry, i) => (
-                    <p key={`${entry.text}-${i}`}>
-                      {entry.text} {entry.weight}
-                    </p>
-                  ))}
-                </details>
-                {dismissing && (
-                  <div className="space-y-2">
-                    <label>
-                      Reason (optional)
+                <details
+                  open={briefing ? dismissing || editingTodo || undefined : true}
+                  className={briefing ? "rounded-xl border bg-muted/20 p-3 text-xs" : undefined}
+                >
+                  <summary className={briefing ? "cursor-pointer font-medium text-muted-foreground" : "hidden"}>More options</summary>
+                  <div className="space-y-3 pt-3">
+                    <label className="block">
+                      Context
                       <select
-                        aria-label="Dismiss reason"
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        className="ml-2 border bg-background"
+                        aria-label="Context"
+                        className="ml-2 rounded border bg-background p-1"
+                        value={item.context}
+                        disabled={busy}
+                        onChange={(e) => feedback("set_context", { context: e.target.value })}
                       >
-                        <option value="">No reason</option>
-                        <option value="not_relevant">Not relevant</option>
-                        <option value="already_know">Already know</option>
-                        <option value="duplicate">Duplicate</option>
-                        <option value="resolved">Resolved</option>
+                        {["Work", "Personal", "Family", "Unsorted"].map((context) => (
+                          <option key={context}>{context}</option>
+                        ))}
                       </select>
                     </label>
-                    <Button
-                      disabled={busy}
-                      onClick={() => {
-                        feedback("dismiss", reason ? { reason } : {});
-                        setDismissing(false);
-                      }}
-                    >
-                      Confirm dismiss
-                    </Button>
-                    <Button variant="ghost" onClick={() => setDismissing(false)}>
-                      Cancel
-                    </Button>
-                  </div>
-                )}
-                <details>
-                  <summary>Feedback or correction</summary>
-                  <textarea
-                    aria-label="Feedback or correction"
-                    className="w-full border bg-background p-2"
-                    maxLength={2000}
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                  />
-                  <Button
-                    disabled={busy || !comment.trim()}
-                    onClick={() =>
-                      mutation.mutate(
-                        { kind: "feedback", action: "comment", payload: { text: comment } },
-                        { onSuccess: () => setComment("") },
-                      )
-                    }
-                  >
-                    Save feedback
-                  </Button>
-                  <p>Remembered facts change only after you confirm a proposed correction.</p>
-                </details>
-                {item.todo_link ? (
-                  <a href={item.todo_link.url} target="_blank" rel="noreferrer">
-                    Open todo
-                  </a>
-                ) : outcome?.url ? (
-                  <a href={outcome.url} target="_blank" rel="noreferrer">
-                    Open todo
-                  </a>
-                ) : item.context === "Work" ? (
-                  <Button variant="outline" disabled={busy || portalBusy} onClick={() => setEditingTodo(true)}>
-                    Add to Team Portal
-                  </Button>
-                ) : item.context === "Unsorted" ? (
-                  <p>Choose Work to add a Team Portal todo.</p>
-                ) : null}
-                {portalError && <p role="alert">{portalError}</p>}
-                {outcome?.status === "uncertain" && (
-                  <p role="status">
-                    The task outcome is uncertain. Check Team Portal before trying again; the bridge will reconcile without posting again.
-                  </p>
-                )}
-                {editingTodo && (
-                  <div className="space-y-2 rounded border p-3">
-                    <label className="block">
-                      Todo title
-                      <input
-                        aria-label="Todo title"
-                        className="w-full border bg-background p-2"
-                        maxLength={240}
-                        value={title}
-                        onChange={(e) => {
-                          setTitle(e.target.value);
-                          setPreview(null);
-                        }}
-                      />
-                    </label>
-                    <label className="block">
-                      Todo details
-                      <textarea
-                        aria-label="Todo details"
-                        className="w-full border bg-background p-2"
-                        maxLength={8000}
-                        value={details}
-                        onChange={(e) => {
-                          setDetails(e.target.value);
-                          setPreview(null);
-                        }}
-                      />
-                    </label>
-                    <select
-                      aria-label="Todo priority"
-                      className="border bg-background"
-                      value={priority}
-                      onChange={(e) => {
-                        setPriority(e.target.value);
-                        setPreview(null);
-                      }}
-                    >
-                      {["low", "medium", "high"].map((p) => (
-                        <option key={p}>{p}</option>
+                    {!briefing && item.change_explanation && <p>{item.change_explanation}</p>}
+                    <details>
+                      <summary>Why this card</summary>
+                      <p>
+                        Selected from your messages. Explicit feedback adjusts ranking within this context; one dismissal does not suppress
+                        a topic.
+                      </p>
+                      {(item.why ?? explanations)?.map((entry, i) => (
+                        <p key={`${entry.text}-${i}`}>
+                          {entry.text} {entry.weight}
+                        </p>
                       ))}
-                    </select>
-                    <p>Assigned to you. No deadline. Creating requires the confirmation below.</p>
-                    <Button disabled={busy || portalBusy} onClick={() => void portal()}>
-                      Preview todo
-                    </Button>
-                    {preview && (
-                      <>
-                        <pre className="whitespace-pre-wrap break-words">{JSON.stringify(preview.payload, null, 2)}</pre>
-                        <Button disabled={busy || portalBusy} onClick={() => void portal(true)}>
-                          Confirm create todo
+                    </details>
+                    {dismissing && (
+                      <div className="space-y-2">
+                        <label>
+                          Reason (optional)
+                          <select
+                            aria-label="Dismiss reason"
+                            value={reason}
+                            onChange={(e) => setReason(e.target.value)}
+                            className="ml-2 border bg-background"
+                          >
+                            <option value="">No reason</option>
+                            <option value="not_relevant">Not relevant</option>
+                            <option value="already_know">Already know</option>
+                            <option value="duplicate">Duplicate</option>
+                            <option value="resolved">Resolved</option>
+                          </select>
+                        </label>
+                        <Button
+                          disabled={busy}
+                          onClick={() => {
+                            feedback("dismiss", reason ? { reason } : {});
+                            setDismissing(false);
+                          }}
+                        >
+                          Confirm dismiss
                         </Button>
-                      </>
+                        <Button variant="ghost" onClick={() => setDismissing(false)}>
+                          Cancel
+                        </Button>
+                      </div>
                     )}
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        setEditingTodo(false);
-                        setPreview(null);
-                      }}
-                    >
-                      Cancel
-                    </Button>
+                    <details>
+                      <summary>Feedback or correction</summary>
+                      <textarea
+                        aria-label="Feedback or correction"
+                        className="w-full border bg-background p-2"
+                        maxLength={2000}
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                      />
+                      <Button
+                        disabled={busy || !comment.trim()}
+                        onClick={() =>
+                          mutation.mutate(
+                            { kind: "feedback", action: "comment", payload: { text: comment } },
+                            { onSuccess: () => setComment("") },
+                          )
+                        }
+                      >
+                        Save feedback
+                      </Button>
+                      <p>Remembered facts change only after you confirm a proposed correction.</p>
+                    </details>
+                    {item.todo_link ? (
+                      <a href={item.todo_link.url} target="_blank" rel="noreferrer">
+                        Open todo
+                      </a>
+                    ) : outcome?.url ? (
+                      <a href={outcome.url} target="_blank" rel="noreferrer">
+                        Open todo
+                      </a>
+                    ) : item.context === "Work" ? (
+                      <Button variant="outline" disabled={busy || portalBusy} onClick={() => setEditingTodo(true)}>
+                        Add to Team Portal
+                      </Button>
+                    ) : item.context === "Unsorted" ? (
+                      <p>Choose Work to add a Team Portal todo.</p>
+                    ) : null}
+                    {portalError && <p role="alert">{portalError}</p>}
+                    {outcome?.status === "uncertain" && (
+                      <p role="status">
+                        The task outcome is uncertain. Check Team Portal before trying again; the bridge will reconcile without posting
+                        again.
+                      </p>
+                    )}
+                    {editingTodo && (
+                      <div className="space-y-2 rounded border p-3">
+                        <label className="block">
+                          Todo title
+                          <input
+                            aria-label="Todo title"
+                            className="w-full border bg-background p-2"
+                            maxLength={240}
+                            value={title}
+                            onChange={(e) => {
+                              setTitle(e.target.value);
+                              setPreview(null);
+                            }}
+                          />
+                        </label>
+                        <label className="block">
+                          Todo details
+                          <textarea
+                            aria-label="Todo details"
+                            className="w-full border bg-background p-2"
+                            maxLength={8000}
+                            value={details}
+                            onChange={(e) => {
+                              setDetails(e.target.value);
+                              setPreview(null);
+                            }}
+                          />
+                        </label>
+                        <select
+                          aria-label="Todo priority"
+                          className="border bg-background"
+                          value={priority}
+                          onChange={(e) => {
+                            setPriority(e.target.value);
+                            setPreview(null);
+                          }}
+                        >
+                          {["low", "medium", "high"].map((p) => (
+                            <option key={p}>{p}</option>
+                          ))}
+                        </select>
+                        <p>Assigned to you. No deadline. Creating requires the confirmation below.</p>
+                        <Button disabled={busy || portalBusy} onClick={() => void portal()}>
+                          Preview todo
+                        </Button>
+                        {preview && (
+                          <>
+                            <div aria-label="Todo confirmation preview" className="space-y-2 rounded-lg bg-muted/40 p-3 text-sm">
+                              <p className="font-semibold">{String(preview.payload.title ?? "")}</p>
+                              <p className="whitespace-pre-wrap break-words text-muted-foreground">
+                                {String(preview.payload.details ?? "").replace(/\n\[memos-bridge:[a-f0-9]+\]/g, "")}
+                              </p>
+                              <p>
+                                <span className="font-medium">Assigned to: </span>
+                                {Array.isArray(preview.payload.assigneeEmails) ? preview.payload.assigneeEmails.join(", ") : "You"}
+                              </p>
+                              <p>
+                                <span className="font-medium">Priority: </span>
+                                {String(preview.payload.priority ?? "medium")} · No deadline
+                              </p>
+                            </div>
+                            <Button disabled={busy || portalBusy} onClick={() => void portal(true)}>
+                              Confirm create todo
+                            </Button>
+                          </>
+                        )}
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setEditingTodo(false);
+                            setPreview(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
+                    <AgentCorrections
+                      memoName={memoName}
+                      userName={userName}
+                      version={item.state_version}
+                      disabled={busy}
+                      done={() => void query.refetch()}
+                    />
+                    <details>
+                      <summary>Remember with guidance</summary>
+                      <textarea
+                        aria-label="Remember guidance"
+                        maxLength={2000}
+                        className="w-full border bg-background p-2"
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                      />
+                      <Button disabled={busy} onClick={() => mutation.mutate({ kind: "remember", note: comment })}>
+                        Remember with guidance
+                      </Button>
+                    </details>
                   </div>
-                )}
-                <AgentCorrections
-                  memoName={memoName}
-                  userName={userName}
-                  version={item.state_version}
-                  disabled={busy}
-                  done={() => void query.refetch()}
-                />
-                <details>
-                  <summary>Remember with guidance</summary>
-                  <textarea
-                    aria-label="Remember guidance"
-                    maxLength={2000}
-                    className="w-full border bg-background p-2"
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                  />
-                  <Button disabled={busy} onClick={() => mutation.mutate({ kind: "remember", note: comment })}>
-                    Remember with guidance
-                  </Button>
                 </details>
                 {selected && (
                   <div className="space-y-2">
@@ -347,7 +394,7 @@ function InlineActions({ memoName, userName, memoContent, children }: Props) {
                     <p className="text-muted-foreground">
                       {selected === "draft_reply"
                         ? "The agent will return a draft here for review. Nothing will be sent."
-                        : "The agent will return its findings here."}
+                        : "Hermes will research using your connected sources and return its findings here."}
                     </p>
                     <div className="flex gap-2">
                       <Button size="sm" disabled={busy} onClick={queue}>
@@ -360,15 +407,21 @@ function InlineActions({ memoName, userName, memoContent, children }: Props) {
                   </div>
                 )}
                 {item.jobs.map((job) => (
-                  <div key={job.id} className="rounded-md border p-3 space-y-2">
-                    <p role="status">
-                      {job.handler === "draft_reply" ? "Draft" : "Research"} {job.status}
-                    </p>
+                  <details
+                    key={job.id}
+                    open={!briefing || ["queued", "running", "error", "expired", "stale"].includes(job.status)}
+                    className="rounded-xl border bg-muted/20 p-3 space-y-2"
+                  >
+                    <summary className="cursor-pointer font-medium">
+                      <span role="status">
+                        {job.handler === "draft_reply" ? "Draft" : "Research"} {job.status}
+                      </span>
+                    </summary>
                     {job.result && <p className="whitespace-pre-wrap break-words">{job.result}</p>}
                     {job.status === "expired" && (
                       <p className="text-muted-foreground">The worker timed out. Review its run before retrying.</p>
                     )}
-                  </div>
+                  </details>
                 ))}
               </>
             )}

@@ -1,8 +1,7 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import MemoView from "@/components/MemoView";
+import AgentBriefingCard from "@/components/AgentBriefingCard";
 import { Button } from "@/components/ui/button";
-import { memoDetailQueryOptions } from "@/hooks/useMemoQueries";
 import { type AgentItem, bridgeRequest } from "@/lib/agent-bridge";
 
 type View = "for_you" | "all" | "kept" | "remembered";
@@ -18,25 +17,6 @@ type Preference = {
   evidence: string[];
 };
 type Feed = { items: AgentItem[]; next_cursor: string | null; status: { warnings?: string[] } };
-
-function FeedCard({ item }: { item: AgentItem }) {
-  const memo = useQuery(memoDetailQueryOptions(`memos/${item.memo_uid}`));
-  if (memo.isError) return <p role="alert">Could not load this memo.</p>;
-  if (!memo.data) return null;
-  return (
-    <div className="rounded-lg border p-4">
-      <MemoView memo={memo.data} showVisibility />
-      <details>
-        <summary>Why this card</summary>
-        {item.why?.map((why, i) => (
-          <p key={`${why.text}-${i}`}>
-            {why.text} {why.weight}
-          </p>
-        ))}
-      </details>
-    </div>
-  );
-}
 
 function MemoryCard({ memory, refresh }: { memory: Memory; refresh: () => void }) {
   const [text, setText] = useState(memory.text);
@@ -205,6 +185,11 @@ export default function AgentFeed({ userName, children }: { userName: string; ch
   const warnings = status.data?.warnings ?? query.data?.pages[0]?.status.warnings ?? [];
   return (
     <div className="space-y-3">
+      <header className="space-y-1 pb-2">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your briefing</p>
+        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">A few things worth your attention.</h1>
+        <p className="text-sm text-muted-foreground">Updates and follow-ups from your messages, with the useful details up front.</p>
+      </header>
       <nav aria-label="Feed views" className="flex flex-wrap gap-2">
         {(
           [
@@ -235,7 +220,9 @@ export default function AgentFeed({ userName, children }: { userName: string; ch
           ))}
         </aside>
       )}
-      <Preferences userName={userName} />
+      <div className="text-xs text-muted-foreground">
+        <Preferences userName={userName} />
+      </div>
       {view === "all" ? (
         children
       ) : view === "remembered" ? (
@@ -259,7 +246,7 @@ export default function AgentFeed({ userName, children }: { userName: string; ch
           {query.data?.pages
             .flatMap((p) => p?.items ?? [])
             .map((item) => (
-              <FeedCard key={item.memo_uid} item={item} />
+              <AgentBriefingCard key={item.memo_uid} item={item} userName={userName} />
             ))}
           {query.data?.pages[0]?.items.length === 0 && <p>No cards in this view yet. All keeps your full timeline available.</p>}
           {query.hasNextPage && (

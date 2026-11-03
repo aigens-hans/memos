@@ -2,6 +2,9 @@ import { getRequestToken } from "@/connect";
 
 export type AgentHandler = "learn_more" | "draft_reply";
 export interface AgentItem {
+  key?: string;
+  content?: Record<string, string>;
+  topics?: string[];
   revision: string;
   memo_uid: string;
   state_version: number;

@@ -21,11 +21,11 @@ const item = {
 let state: Record<string, unknown>;
 let requests: { url: string; body: Record<string, string> }[];
 
-function mount() {
+function mount(presentation: "standard" | "briefing" = "standard") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoAgentActions memoName="memos/abc" userName="users/1" memoContent="Original memo">
+      <MemoAgentActions memoName="memos/abc" userName="users/1" memoContent="Original memo" presentation={presentation}>
         <p>Original memo</p>
       </MemoAgentActions>
     </QueryClientProvider>,
@@ -173,4 +173,27 @@ it("does not offer Portal task creation on a Family card", async () => {
   mount();
   await screen.findByRole("button", { name: "Keep" });
   expect(screen.queryByRole("button", { name: "Add to Team Portal" })).not.toBeInTheDocument();
+});
+
+it("briefing mode exposes a quiet menu and opens dismissal confirmation", async () => {
+  mount("briefing");
+  fireEvent.click(await screen.findByRole("button", { name: "Dismiss" }));
+  expect(screen.getByRole("button", { name: "Confirm dismiss" })).toBeVisible();
+});
+
+it("briefing mode folds completed research while keeping its status discoverable", async () => {
+  state.jobs = [{ id: "done", handler: "learn_more", status: "done", result: "Long research result" }];
+  mount("briefing");
+  expect(await screen.findByText("Research done")).toBeVisible();
+  expect(screen.getByText("Long research result")).not.toBeVisible();
+  fireEvent.click(screen.getByText("Research done"));
+  expect(screen.getByText("Long research result")).toBeVisible();
+});
+
+it("briefing mode keeps Learn more visible and exposes Work todo controls through More options", async () => {
+  mount("briefing");
+  expect(await screen.findByRole("button", { name: "Learn more" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "Add to Team Portal" })).not.toBeVisible();
+  fireEvent.click(screen.getByText("More options"));
+  expect(screen.getByRole("button", { name: "Add to Team Portal" })).toBeVisible();
 });
