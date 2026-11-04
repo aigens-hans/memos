@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, Bell, Lightbulb, MessageSquare } from "lucide-react";
 import MemoAgentActions from "@/components/MemoAgentActions";
 import MemoView from "@/components/MemoView";
+import RelativeTime from "@/components/RelativeTime";
 import { useAuth } from "@/contexts/AuthContext";
 import { memoDetailQueryOptions } from "@/hooks/useMemoQueries";
 import type { AgentItem } from "@/lib/agent-bridge";
@@ -51,9 +52,19 @@ export default function AgentBriefingCard({ item, userName }: { item: AgentItem;
   const title = content.headline || content.summary || "Message update";
   const summary = content.detail || (content.summary !== title ? content.summary : "") || content.last_message_excerpt || "";
   const type = presentation(item);
+  const sent = content.source_message_sent_at ? new Date(content.source_message_sent_at) : null;
+  const sentAt = sent && !Number.isNaN(sent.getTime()) ? sent : null;
   const activity = content.last_activity ? new Date(content.last_activity) : null;
-  const date =
-    activity && !Number.isNaN(activity.getTime()) ? activity.toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+  const formatTime = (date: Date) =>
+    date.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+    });
   const source = [content.source?.replaceAll("_", " "), content.chat].filter(Boolean).join(" · ");
   const fullText = memo.data.content.replace(/\[\/\/\]: # \(agent-bridge:[^\n]*\)/g, "").trim();
   return (
@@ -73,12 +84,26 @@ export default function AgentBriefingCard({ item, userName }: { item: AgentItem;
             {type.label}
           </span>
           <span>{item.context}</span>
-          <span className="min-w-0 break-words sm:ml-auto">
-            {source}
-            {date && ` · ${date}`}
-          </span>
+          <span className="min-w-0 break-words sm:ml-auto">{source}</span>
         </div>
         <h2 className="line-clamp-2 break-words text-lg font-semibold leading-snug tracking-tight sm:text-xl">{title}</h2>
+        <div aria-label="Source message" className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          {content.source_message_sender ? (
+            <span>
+              Sent by <span className="font-medium text-foreground">{content.source_message_sender}</span>
+            </span>
+          ) : (
+            <span>Sender unavailable</span>
+          )}
+          <span aria-hidden="true">·</span>
+          {sentAt ? (
+            <time dateTime={content.source_message_sent_at} title={formatTime(sentAt)}>
+              <RelativeTime date={sentAt} format="relative" />
+            </time>
+          ) : (
+            <span>Sent time unavailable</span>
+          )}
+        </div>
         {summary && (
           <p className="mt-2 line-clamp-3 whitespace-pre-line break-words text-sm leading-relaxed text-muted-foreground">{summary}</p>
         )}
@@ -90,6 +115,15 @@ export default function AgentBriefingCard({ item, userName }: { item: AgentItem;
         )}
         <details className="mt-4 border-t pt-3 text-xs text-muted-foreground">
           <summary className="cursor-pointer font-medium">Source &amp; details</summary>
+          <p className="mt-3">Sender and sent time refer to the message anchoring this card, not every message in the conversation.</p>
+          {!sentAt && activity && !Number.isNaN(activity.getTime()) && (
+            <p className="mt-2">
+              Reported activity:{" "}
+              <time dateTime={content.last_activity} title={formatTime(activity)}>
+                <RelativeTime date={activity} format="relative" />
+              </time>
+            </p>
+          )}
           <p className="mt-3 whitespace-pre-wrap break-words leading-relaxed">{fullText}</p>
           <p className="mt-3">AI-generated summary from your messages. Check the source before acting on uncertain details.</p>
           <a className="mt-2 inline-flex items-center gap-1 underline" href={`/memos/${item.memo_uid}`}>

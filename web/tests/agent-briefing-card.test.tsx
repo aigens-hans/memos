@@ -96,3 +96,32 @@ it("does not revive a deleted memo from the feed snapshot", async () => {
   });
   expect(screen.queryByText("Confirm the vendor meeting")).not.toBeInTheDocument();
 });
+
+it("shows the actual group sender and exact sent timestamp instead of only activity date", async () => {
+  const card = {
+    ...item,
+    content: {
+      ...item.content,
+      chat: "Operations group",
+      source_message_sender: "Sam Chen",
+      source_message_sent_at: "2026-11-04T01:15:23+00:00",
+      last_activity: "2026-11-04T08:00:00+00:00",
+    },
+  };
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AgentBriefingCard item={card} userName="users/1" />
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText("Sam Chen")).toBeVisible();
+  const time = document.querySelector('time[datetime="2026-11-04T01:15:23+00:00"]');
+  expect(time).toBeVisible();
+  expect(time).toHaveAttribute("title");
+  expect(screen.getByText(/Operations group/)).toBeVisible();
+});
+
+it("labels legacy attribution as unavailable instead of inventing a sender", async () => {
+  mount();
+  expect(await screen.findByText("Sender unavailable")).toBeVisible();
+  expect(screen.getByText("Sent time unavailable")).toBeVisible();
+});

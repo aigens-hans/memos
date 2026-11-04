@@ -1,10 +1,51 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import AgentBriefingCard from "@/components/AgentBriefingCard";
+import RelativeTime from "@/components/RelativeTime";
 import { Button } from "@/components/ui/button";
 import { type AgentItem, bridgeRequest } from "@/lib/agent-bridge";
 
-type View = "for_you" | "all" | "kept" | "remembered";
+const views = [
+  ["attention", "Needs attention"],
+  ["for_you", "For you"],
+  ["fyi", "FYI"],
+  ["all", "All"],
+  ["kept", "Kept"],
+  ["remembered", "Remembered"],
+] as const;
+type View = (typeof views)[number][0];
+const filterOptions = {
+  kind: [
+    ["all", "All types"],
+    ["action", "Follow-ups"],
+    ["insight", "Briefings"],
+  ],
+  urgency: [
+    ["all", "Any urgency"],
+    ["high", "High only"],
+    ["medium_high", "Medium and high"],
+    ["low", "Low / FYI"],
+  ],
+  context: [
+    ["all", "All contexts"],
+    ["Work", "Work"],
+    ["Personal", "Personal"],
+    ["Family", "Family"],
+    ["Unsorted", "Unsorted"],
+  ],
+} as const;
+type Filters = { [K in keyof typeof filterOptions]: (typeof filterOptions)[K][number][0] };
+const defaultFilters: Filters = { kind: "all", urgency: "all", context: "all" };
+
+function savedFilters(key: string): Filters {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(key) ?? "null");
+    if (value && Object.entries(filterOptions).every(([field, options]) => options.some(([id]) => id === value[field]))) return value;
+  } catch {
+    // Invalid saved selections must not prevent opening the feed.
+  }
+  return defaultFilters;
+}
 type Memory = { id: string; memo_uid: string; version: number; context: string; text: string; note: string };
 type Preference = {
   id: string;
@@ -16,7 +57,15 @@ type Preference = {
   origin: string;
   evidence: string[];
 };
-type Feed = { items: AgentItem[]; next_cursor: string | null; status: { warnings?: string[] } };
+type FeedStatus = { warnings?: string[]; generated_at?: string };
+type Feed = { items: AgentItem[]; next_cursor: string | null; status: FeedStatus };
+type SyncState = {
+  state: "idle" | "running" | "pending" | "busy" | "done" | "error" | "interrupted" | "unavailable";
+  run_id?: string;
+  published?: number;
+  message?: string;
+};
+const activeSyncStates = ["running", "pending", "busy"];
 
 function MemoryCard({ memory, refresh }: { memory: Memory; refresh: () => void }) {
   const [text, setText] = useState(memory.text);
@@ -156,25 +205,59 @@ function Preferences({ userName }: { userName: string }) {
 }
 
 export default function AgentFeed({ userName, children }: { userName: string; children: ReactNode }) {
+  const client = useQueryClient();
+  const syncKey = ["agent-sync-status", userName];
+  const sync = useQuery({
+    queryKey: syncKey,
+    queryFn: () => bridgeRequest<SyncState>("sync"),
+    refetchInterval: (query) => (activeSyncStates.includes(query.state.data?.state ?? "") ? 2000 : false),
+    retry: false,
+  });
+  const syncNow = useMutation({
+    mutationFn: () => bridgeRequest<SyncState>("sync", {}),
+    onSuccess: (state) => {
+      client.setQueryData(syncKey, state);
+      void client.invalidateQueries({ queryKey: syncKey });
+    },
+  });
+  useEffect(() => {
+    if (sync.data?.state === "done") {
+      void client.invalidateQueries({ queryKey: ["agent-feed"] });
+      void client.invalidateQueries({ queryKey: ["agent-feed-status"] });
+      void client.invalidateQueries({ queryKey: ["memos"] });
+    }
+  }, [client, sync.data?.state, sync.data?.run_id]);
+  const syncing = syncNow.isPending || activeSyncStates.includes(sync.data?.state ?? "");
   const key = `agent-feed-view:${userName}`;
   const [view, setView] = useState<View>(() => {
     const saved = sessionStorage.getItem(key);
-    return ["for_you", "all", "kept", "remembered"].includes(saved ?? "") ? (saved as View) : "for_you";
+    return views.some(([id]) => id === saved) ? (saved as View) : "attention";
   });
+  const filtersKey = `agent-feed-filters:${userName}`;
+  const [filters, setFilters] = useState<Filters>(() => savedFilters(filtersKey));
+  const updateFilters = (next: Filters) => {
+    setFilters(next);
+    sessionStorage.setItem(filtersKey, JSON.stringify(next));
+  };
+  const isCardView = view !== "all" && view !== "remembered";
   const query = useInfiniteQuery({
-    queryKey: ["agent-feed", userName, view],
+    queryKey: ["agent-feed", userName, view, filters],
     initialPageParam: "",
     queryFn: ({ pageParam }) =>
       bridgeRequest<Feed>(
-        `feed?view=${view === "kept" ? "kept" : "for_you"}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`,
+        `feed?${new URLSearchParams({
+          view,
+          ...filters,
+          ...(pageParam ? { cursor: pageParam } : {}),
+        })}`,
       ),
     getNextPageParam: (page) => page?.next_cursor ?? undefined,
-    enabled: view === "for_you" || view === "kept",
+    enabled: isCardView,
     retry: false,
   });
   const status = useQuery({
     queryKey: ["agent-feed-status", userName],
-    queryFn: () => bridgeRequest<{ warnings?: string[] }>("feed/status"),
+    queryFn: () => bridgeRequest<FeedStatus>("feed/status"),
     refetchInterval: 60000,
   });
   const memories = useQuery({
@@ -182,23 +265,56 @@ export default function AgentFeed({ userName, children }: { userName: string; ch
     queryFn: () => bridgeRequest<Memory[]>("memories"),
     enabled: view === "remembered",
   });
-  const warnings = status.data?.warnings ?? query.data?.pages[0]?.status.warnings ?? [];
+  const coverage = status.data ?? query.data?.pages[0]?.status;
+  const warnings = coverage?.warnings ?? [];
+  const scanDate = coverage?.generated_at ? new Date(coverage.generated_at) : null;
+  const scanTime =
+    scanDate && !Number.isNaN(scanDate.getTime())
+      ? scanDate.toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          timeZoneName: "short",
+        })
+      : null;
   return (
     <div className="space-y-3">
       <header className="space-y-1 pb-2">
         <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Your briefing</p>
         <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">A few things worth your attention.</h1>
         <p className="text-sm text-muted-foreground">Updates and follow-ups from your messages, with the useful details up front.</p>
+        <div className="flex flex-wrap items-center gap-3 pt-2">
+          <Button variant="outline" disabled={syncing || sync.data?.state === "unavailable"} onClick={() => syncNow.mutate()}>
+            {syncing ? "Syncing…" : "Sync now"}
+          </Button>
+          {syncing && (
+            <p role="status" className="text-xs text-muted-foreground">
+              {sync.data?.state === "busy" ? "Another sync is already running." : "Fetching messages and updating your cards…"}
+            </p>
+          )}
+          {sync.data?.state === "done" && (
+            <p role="status" className="text-xs text-muted-foreground">
+              Sync complete · {sync.data.published ?? 0} cards processed.
+            </p>
+          )}
+          {sync.data?.state === "unavailable" && <p className="text-xs text-muted-foreground">Manual sync is not configured.</p>}
+          {(sync.data?.state === "error" || sync.data?.state === "interrupted") && (
+            <p role="alert" className="text-xs">
+              {sync.data.message}
+            </p>
+          )}
+          {syncNow.error && (
+            <p role="alert" className="text-xs">
+              Could not start sync: {syncNow.error.message}
+            </p>
+          )}
+        </div>
       </header>
       <nav aria-label="Feed views" className="flex flex-wrap gap-2">
-        {(
-          [
-            ["for_you", "For you"],
-            ["all", "All"],
-            ["kept", "Kept"],
-            ["remembered", "Remembered"],
-          ] as const
-        ).map(([id, label]) => (
+        {views.map(([id, label]) => (
           <Button
             key={id}
             variant={view === id ? "default" : "ghost"}
@@ -212,11 +328,64 @@ export default function AgentFeed({ userName, children }: { userName: string; ch
           </Button>
         ))}
       </nav>
+      {isCardView && (
+        <section aria-label="Card filters" className="space-y-2 rounded border p-3 text-sm">
+          <div className="flex flex-wrap items-end gap-3">
+            {(
+              [
+                ["kind", "Card type"],
+                ["urgency", "Urgency"],
+                ["context", "Card context"],
+              ] as const
+            ).map(([field, label]) => (
+              <label key={field} className="flex flex-col gap-1">
+                {label}
+                <select
+                  className="rounded border bg-background p-1.5"
+                  value={filters[field]}
+                  onChange={(event) => updateFilters({ ...filters, [field]: event.target.value })}
+                >
+                  {filterOptions[field].map(([value, text]) => (
+                    <option key={value} value={value}>
+                      {text}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+            <Button variant="ghost" onClick={() => updateFilters(defaultFilters)}>
+              Reset filters
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {view === "attention"
+              ? "Follow-ups and medium/high-urgency briefings."
+              : view === "fyi"
+                ? "Low-urgency briefing updates."
+                : "Filter the cards in this view."}
+          </p>
+          {filters.urgency !== "all" && (
+            <p className="text-xs text-muted-foreground">
+              Urgency filters show briefing cards with an explicit urgency; follow-ups have no urgency rating.
+            </p>
+          )}
+        </section>
+      )}
       {warnings.length > 0 && (
         <aside aria-label="Feed coverage" className="rounded border p-3 text-sm">
           <p>Some chats are still awaiting processing. The feed may be incomplete.</p>
+          <p className="mb-2 text-xs text-muted-foreground">
+            {scanTime ? "Times show how long ago this scan was generated." : "Scan time unavailable."}
+          </p>
           {[...new Set(warnings)].map((w) => (
-            <p key={w}>{w}</p>
+            <p key={w} className="flex flex-wrap gap-x-2">
+              {scanTime && (
+                <time dateTime={coverage?.generated_at} title={`Scan generated: ${scanTime}`} className="text-muted-foreground">
+                  <RelativeTime date={scanDate ?? undefined} format="relative" />
+                </time>
+              )}
+              <span>{w}</span>
+            </p>
           ))}
         </aside>
       )}
@@ -248,7 +417,7 @@ export default function AgentFeed({ userName, children }: { userName: string; ch
             .map((item) => (
               <AgentBriefingCard key={item.memo_uid} item={item} userName={userName} />
             ))}
-          {query.data?.pages[0]?.items.length === 0 && <p>No cards in this view yet. All keeps your full timeline available.</p>}
+          {query.data?.pages[0]?.items.length === 0 && <p>No cards match this view. Try resetting filters or open All.</p>}
           {query.hasNextPage && (
             <Button disabled={query.isFetchingNextPage} onClick={() => void query.fetchNextPage()}>
               Load more
