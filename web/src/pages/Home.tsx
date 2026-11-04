@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import AgentFeed from "@/components/AgentFeed";
 import { MemoEditor } from "@/components/MemoEditor";
 import { deriveDefaultCreateTimeFromFilters } from "@/components/MemoEditor/edit/utils/deriveDefaultCreateTime";
 import MemoView from "@/components/MemoView";
@@ -44,7 +45,7 @@ const Home = () => {
     state: State.NORMAL,
   });
 
-  return (
+  const timeline = (
     <div className="w-full min-h-full bg-background text-foreground">
       <WelcomeGuideDialog open={welcomeGuide.open} onOpenChange={welcomeGuide.onOpenChange} />
       <NewMemoProvider>
@@ -88,6 +89,11 @@ const Home = () => {
         />
       </NewMemoProvider>
     </div>
+  );
+  return import.meta.env.VITE_AGENT_BRIDGE_ENABLED === "true" && onOwnHome && user ? (
+    <AgentFeed userName={user.name}>{timeline}</AgentFeed>
+  ) : (
+    timeline
   );
 };
 
