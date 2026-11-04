@@ -19,3 +19,20 @@ The bridge applies predicates before pagination and binds snapshots to every sel
 ## Relative times (2026-11-04)
 
 Source-message times, reported activity and coverage-warning scan times display relative ages using the existing auto-updating RelativeTime component with relative format. The exact local date, time and timezone remain on the enclosing time element's hover title and the original ISO value remains in datetime. Missing source/scan times still show unavailable; polling does not reset warning ages.
+
+## Source icons (2026-11-04)
+
+Each briefing card's existing source metadata now shows a compact icon alongside
+a readable source label and the conversation name. WhatsApp uses a green phone
+and chat bubble, Slack a purple hash, Zoho Cliq amber conversation bubbles, and
+email a blue envelope. Work and personal Gmail remain explicitly labeled
+“Email · Work” and “Email · Personal”. Unknown sources retain their provided
+name with a neutral icon; missing sources say “Unknown source”. The complete
+badge has an accessible source label; nested SVGs are decorative.
+
+This is a display mapping from existing content.source metadata. It adds no new
+connector, source inference, dependency, backend change or remote icon request.
+Existing private-owner, stale-content and blurred-memo safeguards still run before
+card metadata renders. Current uncommitted source changes were preserved in an
+isolated worktree snapshot. Deploy only the static UI through the existing
+versioned release and gateway-root rollback mechanism.

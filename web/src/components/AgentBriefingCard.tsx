@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUpRight, Bell, Lightbulb, MessageSquare } from "lucide-react";
+import AgentSourceBadge from "@/components/AgentSourceBadge";
 import MemoAgentActions from "@/components/MemoAgentActions";
 import MemoView from "@/components/MemoView";
 import RelativeTime from "@/components/RelativeTime";
@@ -65,7 +66,6 @@ export default function AgentBriefingCard({ item, userName }: { item: AgentItem;
       second: "2-digit",
       timeZoneName: "short",
     });
-  const source = [content.source?.replaceAll("_", " "), content.chat].filter(Boolean).join(" · ");
   const fullText = memo.data.content.replace(/\[\/\/\]: # \(agent-bridge:[^\n]*\)/g, "").trim();
   return (
     <article aria-label={title} className={`overflow-hidden rounded-2xl border border-l-[3px] ${type.accent} bg-card p-4 shadow-sm sm:p-5`}>
@@ -84,7 +84,10 @@ export default function AgentBriefingCard({ item, userName }: { item: AgentItem;
             {type.label}
           </span>
           <span>{item.context}</span>
-          <span className="min-w-0 break-words sm:ml-auto">{source}</span>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:ml-auto">
+            <AgentSourceBadge source={content.source} />
+            {content.chat && <span className="min-w-0 break-words">{content.chat}</span>}
+          </div>
         </div>
         <h2 className="line-clamp-2 break-words text-lg font-semibold leading-snug tracking-tight sm:text-xl">{title}</h2>
         <div aria-label="Source message" className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted-foreground">

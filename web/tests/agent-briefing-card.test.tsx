@@ -125,3 +125,26 @@ it("labels legacy attribution as unavailable instead of inventing a sender", asy
   expect(await screen.findByText("Sender unavailable")).toBeVisible();
   expect(screen.getByText("Sent time unavailable")).toBeVisible();
 });
+
+it.each([
+  ["whatsapp", "WhatsApp"],
+  ["slack", "Slack"],
+  ["zoho_cliq", "Zoho Cliq"],
+  ["gmail_work", "Email · Work"],
+  ["gmail_personal", "Email · Personal"],
+  ["gmail", "Email"],
+  ["email", "Email"],
+  ["future_platform", "future platform"],
+  [undefined, "Unknown source"],
+])("identifies the card source accessibly for %s without losing its conversation", async (source, label) => {
+  const content: Record<string, string> = { ...item.content };
+  if (source) content.source = source;
+  else delete content.source;
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AgentBriefingCard item={{ ...item, content }} userName="users/1" />
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByRole("img", { name: `Source: ${label}` })).toBeVisible();
+  expect(screen.getByText("Vendor team")).toBeVisible();
+});
